@@ -598,6 +598,99 @@ function ResultsView({ schedule }) {
   );
 }
 
+function PublicHolidaysPicker({ value, onChange }) {
+  const [draft, setDraft] = useState("");
+
+  const holidays = Array.isArray(value) ? value : [];
+
+  function addDate() {
+    const d = (draft || "").trim();
+    if (!d) return;
+
+    // ensure YYYY-MM-DD format (native date input already gives this)
+    // prevent duplicates
+    const next = Array.from(new Set([...holidays, d])).sort();
+    onChange(next);
+    setDraft("");
+  }
+
+  function removeDate(date) {
+    onChange(holidays.filter((x) => x !== date));
+  }
+
+  function clearAll() {
+    onChange([]);
+  }
+
+  return (
+    <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">Public holidays</div>
+          <div className="text-xs text-white/50 mt-1">
+            Pick dates and add them
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={clearAll}
+          disabled={!holidays.length}
+          className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
+        >
+          Clear
+        </button>
+      </div>
+
+      {/* Add row */}
+      <div className="mt-3 flex flex-col sm:flex-row gap-2 min-w-0">
+        <input
+          type="date"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          className="date-white-icon w-full sm:w-[220px] min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+        />
+        <button
+          type="button"
+          onClick={addDate}
+          disabled={!draft}
+          className="shrink-0 rounded-2xl px-4 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition disabled:opacity-50"
+        >
+          Add
+        </button>
+
+        <div className="sm:ml-auto text-xs text-white/50 flex items-center">
+          Total: <b className="text-white/80 ml-1">{holidays.length}</b>
+        </div>
+      </div>
+
+      {/* Chips */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {holidays.length ? (
+          holidays.map((d) => (
+            <span
+              key={d}
+              className="group inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm text-white/80"
+            >
+              <span className="font-mono text-xs text-white/70">{d}</span>
+              <button
+                type="button"
+                onClick={() => removeDate(d)}
+                className="rounded-full px-1 text-white/60 hover:text-white"
+                aria-label={`Remove ${d}`}
+              >
+                ✕
+              </button>
+            </span>
+          ))
+        ) : (
+          <div className="text-sm text-white/50">No holidays added yet.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function SchedulerPage() {
   const nav = useNavigate();
   const [token] = useState(() => localStorage.getItem("jwt") || "");
@@ -613,7 +706,7 @@ export default function SchedulerPage() {
 
   const [cap, setCap] = useState(0.5);
   const [excluded, setExcluded] = useState(["friday"]);
-  const [holidayText, setHolidayText] = useState("");
+  const [publicHolidays, setPublicHolidays] = useState([]);
 
   const [drivers, setDrivers] = useState([]);
   const [types, setTypes] = useState({});
@@ -681,7 +774,7 @@ export default function SchedulerPage() {
       month,
       start_day: Number(startDay),
       employees,
-      public_holidays: parseHolidayLines(holidayText),
+      public_holidays: publicHolidays,
       excluded_weekdays: excluded,
       local_off_days: Number(localOffDays),
       overseas_off_days: Number(overseasOffDays),
@@ -906,16 +999,9 @@ export default function SchedulerPage() {
               </div>
 
               <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <div className="text-sm font-semibold">Public holidays</div>
-                <div className="mt-2 text-xs text-white/50">
-                  Paste dates separated by commas/new lines. Accepts{" "}
-                  <b>YYYY-MM-DD</b> or <b>DD/MM/YYYY</b>.
-                </div>
-                <textarea
-                  value={holidayText}
-                  onChange={(e) => setHolidayText(e.target.value)}
-                  placeholder={"2026-02-25\n26/02/2026"}
-                  className="mt-3 w-full min-w-0 min-h-[120px] rounded-2xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                <PublicHolidaysPicker
+                  value={publicHolidays}
+                  onChange={setPublicHolidays}
                 />
               </div>
             </div>

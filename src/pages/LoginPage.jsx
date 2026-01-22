@@ -23,7 +23,7 @@ async function apiFetch(path, opts = {}) {
 export default function LoginPage() {
   const nav = useNavigate();
 
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");

@@ -119,7 +119,7 @@ function Toast({ toast, onClose }) {
   );
 }
 
-function CSVUpload({ onDrivers }) {
+function CSVUpload({ onDrivers, embedded = false }) {
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
   const [nameCol, setNameCol] = useState("");
@@ -152,13 +152,28 @@ function CSVUpload({ onDrivers }) {
   }, [rows, nameCol, onDrivers]);
 
   return (
-    <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
-      <h3 className="text-base font-semibold">Upload CSV</h3>
-      <p className="text-sm text-white/60 mt-1">
-        Only required from the CSV: the <b>driver names</b> column.
-      </p>
+    <div
+      className={
+        embedded
+          ? "min-w-0"
+          : "min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6"
+      }
+    >
+      {!embedded && (
+        <>
+          <h3 className="text-base font-semibold">Upload CSV</h3>
+          <p className="text-sm text-white/60 mt-1">
+            Only required from the CSV: the <b>driver names</b> column.
+          </p>
+        </>
+      )}
 
-      <div className="mt-4 grid gap-3 min-w-0">
+      <div
+        className={classNames(
+          embedded ? "grid gap-3" : "mt-4 grid gap-3",
+          "min-w-0",
+        )}
+      >
         <input
           type="file"
           accept=".csv"
@@ -166,7 +181,10 @@ function CSVUpload({ onDrivers }) {
             const f = e.target.files?.[0];
             if (f) handleFile(f);
           }}
-          className="block w-full text-sm text-white/70 file:mr-3 file:rounded-xl file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-white hover:file:bg-white/15"
+          className={classNames(
+            "block w-full text-sm text-white/70",
+            "file:mr-3 file:rounded-xl file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-white hover:file:bg-white/15",
+          )}
         />
 
         {headers.length > 0 && (
@@ -196,7 +214,14 @@ function CSVUpload({ onDrivers }) {
   );
 }
 
-function DriverTypeEditor({ drivers, types, setTypes }) {
+function DriverTypeEditor({
+  drivers,
+  types,
+  setTypes,
+  manualName,
+  setManualName,
+  onAddManual,
+}) {
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
@@ -213,15 +238,19 @@ function DriverTypeEditor({ drivers, types, setTypes }) {
 
   return (
     <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Title */}
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold">Employees</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold">Employees</h3>
+            <span className="text-xs text-white/50">({drivers.length})</span>
+          </div>
           <p className="text-sm text-white/60 mt-1">
-            Payload format:{" "}
-            <span className="font-mono text-white/70">{"{ name: type }"}</span>
+            Add drivers, search, then set type.
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        {/* Right: bulk buttons */}
+        <div className="flex flex-wrap gap-2 lg:justify-end lg:w-auto shrink-0">
           <button
             onClick={() => setAll("local")}
             className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
@@ -237,19 +266,44 @@ function DriverTypeEditor({ drivers, types, setTypes }) {
         </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-2 min-w-0">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search driver..."
-          className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-        />
-        <div className="text-xs text-white/50 whitespace-nowrap shrink-0">
-          {filtered.length}/{drivers.length}
+      {/* Controls row */}
+      <div className="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0 w-full">
+        {/* Left: Add + Search (same row on lg, stacked on mobile) */}
+        <div className="flex flex-col sm:flex-row gap-3 min-w-0 w-full">
+          {/* Add driver (input + button always together) */}
+          <div className="flex gap-2 min-w-0 w-full sm:w-1/2">
+            <input
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+              placeholder="Add driver..."
+              className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+            />
+            <button
+              onClick={onAddManual}
+              className="shrink-0 rounded-2xl px-4 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition"
+            >
+              Add
+            </button>
+          </div>
+
+          {/* Search (input + counter always together) */}
+          <div className="flex gap-2 min-w-0 w-full sm:w-1/2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search..."
+              className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+            />
+            <div className="shrink-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60 whitespace-nowrap flex items-center">
+              <b className="text-white/80">{filtered.length}</b>/
+              {drivers.length}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="mt-4 max-h-[360px] overflow-auto rounded-2xl border border-white/10 min-w-0">
+      {/* Table */}
+      <div className="mt-4 max-h-[420px] overflow-auto rounded-2xl border border-white/10 min-w-0">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-black/40 backdrop-blur border-b border-white/10">
             <tr>
@@ -280,10 +334,11 @@ function DriverTypeEditor({ drivers, types, setTypes }) {
                 </td>
               </tr>
             ))}
+
             {!drivers.length && (
               <tr>
                 <td className="p-3 text-white/50" colSpan={2}>
-                  Upload a CSV first (or add drivers manually).
+                  Upload a CSV first (from Rules) or add drivers above.
                 </td>
               </tr>
             )}
@@ -539,46 +594,6 @@ function ResultsView({ schedule }) {
           )}
         </div>
       )}
-
-      {/* ✅ Summary: ONLY this area horizontal-scrolls */}
-      {summary?.rows && (
-        <div className="mt-6 min-w-0">
-          <div className="text-sm font-semibold">Summary (preview)</div>
-          <div className="mt-2 max-w-full min-w-0 overflow-x-auto overflow-y-hidden rounded-2xl border border-white/10">
-            <table className="w-max min-w-max text-sm">
-              <thead className="sticky top-0 bg-black/40 backdrop-blur border-b border-white/10">
-                <tr>
-                  {summary.columns.map((c) => (
-                    <th
-                      key={c}
-                      className="p-2 text-left font-semibold whitespace-nowrap"
-                    >
-                      {c}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {summary.rows.map((row, idx) => (
-                  <tr
-                    key={idx}
-                    className="border-b border-white/10 last:border-b-0"
-                  >
-                    {row.map((cell, cIdx) => (
-                      <td
-                        key={cIdx}
-                        className="p-2 whitespace-nowrap text-white/70"
-                      >
-                        {String(cell)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -692,7 +707,7 @@ export default function SchedulerPage() {
   }
 
   return (
-    <div className="min-h-screen text-white bg-gradient-to-b from-black via-slate-950 to-slate-900 overflow-x-hidden">
+    <div className="min-h-screen text-white bg-gradient-to-b from-[#150327] via-[#1c0533] to-[#22093b] overflow-x-hidden">
       <Toast toast={toast} onClose={() => setToast(null)} />
 
       {/* Top bar */}
@@ -716,202 +731,205 @@ export default function SchedulerPage() {
         </div>
       </div>
 
+      {/* Page */}
       <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 min-w-0">
-        {/* ✅ min-w-0 on the grid + columns prevents table from expanding the page */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 min-w-0">
-          {/* Left */}
-          <div className="lg:col-span-4 grid gap-4 min-w-0">
-            <CSVUpload onDrivers={setDrivers} />
+        <div className="grid gap-4 min-w-0">
+          {/* ✅ RULES (FULL WIDTH) + CSV UPLOAD INSIDE */}
+          <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold">Rules</h2>
+                <p className="text-sm text-white/60 mt-1">
+                  Upload employees, set rules, then generate.
+                </p>
+              </div>
 
-            <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
-              <h3 className="text-base font-semibold">Add Driver Manually</h3>
-              <div className="mt-3 flex gap-2 min-w-0">
-                <input
-                  value={manualName}
-                  onChange={(e) => setManualName(e.target.value)}
-                  placeholder="Driver name..."
-                  className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+              <button
+                onClick={generate}
+                disabled={loading || !token}
+                className="shrink-0 rounded-2xl px-5 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition disabled:opacity-50"
+              >
+                {loading ? "Generating..." : "Generate Schedule"}
+              </button>
+            </div>
+
+            {/* ✅ CSV Upload lives here */}
+            <div className="mt-5 grid grid-cols-1 lg:grid-cols-12 gap-4 min-w-0">
+              <div className="lg:col-span-4 min-w-0">
+                <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold">
+                        Upload employees
+                      </div>
+                      <div className="text-xs text-white/50 mt-1">
+                        CSV only needs the driver names column.
+                      </div>
+                    </div>
+                    <div className="text-xs text-white/50 shrink-0">
+                      Loaded: <b className="text-white/80">{drivers.length}</b>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 min-w-0">
+                    <CSVUpload onDrivers={setDrivers} embedded />
+                  </div>
+                </div>
+              </div>
+
+              {/* Rule inputs */}
+              <div className="lg:col-span-8 min-w-0">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
+                  <div className="min-w-0">
+                    <label className="text-xs font-medium text-white/70">
+                      Year
+                    </label>
+                    <input
+                      type="number"
+                      value={year}
+                      onChange={(e) => setYear(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="text-xs font-medium text-white/70">
+                      Month
+                    </label>
+                    <select
+                      value={month}
+                      onChange={(e) => setMonth(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    >
+                      {MONTHS.map((m) => (
+                        <option key={m} value={m}>
+                          {m[0].toUpperCase() + m.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="text-xs font-medium text-white/70">
+                      Start day
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={startDay}
+                      onChange={(e) => setStartDay(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="text-xs font-medium text-white/70">
+                      Local off days
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={31}
+                      value={localOffDays}
+                      onChange={(e) => setLocalOffDays(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="text-xs font-medium text-white/70">
+                      Overseas off days
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={31}
+                      value={overseasOffDays}
+                      onChange={(e) => setOverseasOffDays(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    />
+                  </div>
+
+                  <div className="min-w-0">
+                    <label className="text-xs font-medium text-white/70">
+                      Driver percentage cap{" "}
+                      <span className="text-white/40">(0..1)</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      min="0"
+                      max="1"
+                      value={cap}
+                      onChange={(e) => setCap(e.target.value)}
+                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Excluded + Holidays */}
+            <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
+              <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="text-sm font-semibold">Excluded weekdays</div>
+                <div className="mt-3 grid grid-cols-4 sm:grid-cols-7 gap-2">
+                  {WEEKDAYS.map((d) => {
+                    const checked = excluded.includes(d.value);
+                    return (
+                      <button
+                        key={d.value}
+                        type="button"
+                        onClick={() =>
+                          setExcluded((prev) => {
+                            if (checked)
+                              return prev.filter((x) => x !== d.value);
+                            return Array.from(new Set([...prev, d.value]));
+                          })
+                        }
+                        className={classNames(
+                          "rounded-xl border px-3 py-2 text-sm transition",
+                          checked
+                            ? "border-[#d3fb00]/30 bg-[#d3fb00] text-black"
+                            : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10",
+                        )}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 text-xs text-white/50">
+                  These weekdays cannot be OFF days.
+                </div>
+              </div>
+
+              <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="text-sm font-semibold">Public holidays</div>
+                <div className="mt-2 text-xs text-white/50">
+                  Paste dates separated by commas/new lines. Accepts{" "}
+                  <b>YYYY-MM-DD</b> or <b>DD/MM/YYYY</b>.
+                </div>
+                <textarea
+                  value={holidayText}
+                  onChange={(e) => setHolidayText(e.target.value)}
+                  placeholder={"2026-02-25\n26/02/2026"}
+                  className="mt-3 w-full min-w-0 min-h-[120px] rounded-2xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
                 />
-                <button
-                  onClick={addManualDriver}
-                  className="shrink-0 rounded-2xl px-4 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition"
-                >
-                  Add
-                </button>
-              </div>
-              <div className="mt-2 text-xs text-white/50">
-                Total drivers: <b className="text-white/80">{drivers.length}</b>
               </div>
             </div>
-
-            <DriverTypeEditor
-              drivers={drivers}
-              types={types}
-              setTypes={setTypes}
-            />
           </div>
-
-          {/* Right */}
-          <div className="lg:col-span-8 grid gap-4 min-w-0">
-            <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
-              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-semibold">Rules</h2>
-                  <p className="text-sm text-white/60 mt-1">
-                    Matches your FastAPI payload fields.
-                  </p>
-                </div>
-
-                <button
-                  onClick={generate}
-                  disabled={loading || !token}
-                  className="shrink-0 rounded-2xl px-5 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition disabled:opacity-50"
-                >
-                  {loading ? "Generating..." : "Generate Schedule"}
-                </button>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
-                <div className="min-w-0">
-                  <label className="text-xs font-medium text-white/70">
-                    Year
-                  </label>
-                  <input
-                    type="number"
-                    value={year}
-                    onChange={(e) => setYear(e.target.value)}
-                    className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label className="text-xs font-medium text-white/70">
-                    Month
-                  </label>
-                  <select
-                    value={month}
-                    onChange={(e) => setMonth(e.target.value)}
-                    className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  >
-                    {MONTHS.map((m) => (
-                      <option key={m} value={m}>
-                        {m[0].toUpperCase() + m.slice(1)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="min-w-0">
-                  <label className="text-xs font-medium text-white/70">
-                    Start day
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={startDay}
-                    onChange={(e) => setStartDay(e.target.value)}
-                    className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label className="text-xs font-medium text-white/70">
-                    Local off days
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={31}
-                    value={localOffDays}
-                    onChange={(e) => setLocalOffDays(e.target.value)}
-                    className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label className="text-xs font-medium text-white/70">
-                    Overseas off days
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={31}
-                    value={overseasOffDays}
-                    onChange={(e) => setOverseasOffDays(e.target.value)}
-                    className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </div>
-
-                <div className="min-w-0">
-                  <label className="text-xs font-medium text-white/70">
-                    Driver percentage cap{" "}
-                    <span className="text-white/40">(0..1)</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    min="0"
-                    max="1"
-                    value={cap}
-                    onChange={(e) => setCap(e.target.value)}
-                    className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4 min-w-0">
-                <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="text-sm font-semibold">Excluded weekdays</div>
-                  <div className="mt-3 grid grid-cols-4 sm:grid-cols-7 gap-2">
-                    {WEEKDAYS.map((d) => {
-                      const checked = excluded.includes(d.value);
-                      return (
-                        <button
-                          key={d.value}
-                          type="button"
-                          onClick={() =>
-                            setExcluded((prev) => {
-                              if (checked)
-                                return prev.filter((x) => x !== d.value);
-                              return Array.from(new Set([...prev, d.value]));
-                            })
-                          }
-                          className={classNames(
-                            "rounded-xl border px-3 py-2 text-sm transition",
-                            checked
-                              ? "border-[#d3fb00]/30 bg-[#d3fb00] text-black"
-                              : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10",
-                          )}
-                        >
-                          {d.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="mt-2 text-xs text-white/50">
-                    These weekdays cannot be OFF days.
-                  </div>
-                </div>
-
-                <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="text-sm font-semibold">Public holidays</div>
-                  <div className="mt-2 text-xs text-white/50">
-                    Paste dates separated by commas/new lines. Accepts{" "}
-                    <b>YYYY-MM-DD</b> or <b>DD/MM/YYYY</b>.
-                  </div>
-                  <textarea
-                    value={holidayText}
-                    onChange={(e) => setHolidayText(e.target.value)}
-                    placeholder={"2026-02-25\n26/02/2026"}
-                    className="mt-3 w-full min-w-0 min-h-[120px] rounded-2xl border border-white/10 bg-black/30 px-3 py-2 font-mono text-sm text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <ResultsView schedule={schedule} />
-          </div>
+          <DriverTypeEditor
+            drivers={drivers}
+            types={types}
+            setTypes={setTypes}
+            manualName={manualName}
+            setManualName={setManualName}
+            onAddManual={addManualDriver}
+          />
+          {/* ✅ RESULTS BELOW (only shows after generate) */}
+          {schedule && <ResultsView schedule={schedule} />}
         </div>
       </div>
     </div>

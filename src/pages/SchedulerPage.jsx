@@ -36,6 +36,50 @@ function classNames(...xs) {
   return xs.filter(Boolean).join(" ");
 }
 
+function normalizeKey(s) {
+  return String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
+function normalizeType(v) {
+  const s = String(v || "")
+    .trim()
+    .toLowerCase();
+  if (!s) return "";
+  // handle common variants
+  if (s.includes("over")) return "overseas";
+  if (s.includes("local")) return "local";
+  if (s === "o") return "overseas";
+  if (s === "l") return "local";
+  return "";
+}
+
+function guessNameColumn(headers) {
+  const lower = (headers || []).map((h) =>
+    String(h || "")
+      .trim()
+      .toLowerCase(),
+  );
+  const idx1 = lower.findIndex(
+    (h) => h.includes("driver") && h.includes("name"),
+  );
+  if (idx1 !== -1) return headers[idx1];
+  const idx2 = lower.findIndex(
+    (h) => h === "driver" || h === "drivers" || h === "name" || h === "names",
+  );
+  return idx2 >= 0 ? headers[idx2] : headers?.[0] || "";
+}
+
+function guessByAliases(headers, aliases) {
+  const hs = headers || [];
+  const norm = hs.map((h) => normalizeKey(h));
+  const targets = (aliases || []).map((a) => normalizeKey(a));
+  const idx = norm.findIndex((k) => targets.includes(k));
+  return idx >= 0 ? hs[idx] : "";
+}
+
 async function apiFetch(path, { token, ...opts } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
@@ -56,27 +100,43 @@ async function apiFetch(path, { token, ...opts } = {}) {
   return body;
 }
 
-function guessNameColumn(headers) {
-  const lower = headers.map((h) =>
-    String(h || "")
-      .trim()
-      .toLowerCase(),
-  );
-  const idx1 = lower.findIndex(
-    (h) => h.includes("driver") && h.includes("name"),
-  );
-  if (idx1 !== -1) return headers[idx1];
-  const idx2 = lower.findIndex(
-    (h) => h === "driver" || h === "drivers" || h === "name" || h === "names",
-  );
-  return idx2 >= 0 ? headers[idx2] : headers[0];
+function rowToArray(row, columns) {
+  // If already an array, return as-is (but ensure length matches columns)
+  if (Array.isArray(row)) {
+    const arr = row.map((v) => (v == null ? "" : String(v)));
+    if (!columns?.length) return arr;
+    // pad/trim to columns length
+    if (arr.length < columns.length)
+      return [...arr, ...Array(columns.length - arr.length).fill("")];
+    if (arr.length > columns.length) return arr.slice(0, columns.length);
+    return arr;
+  }
+
+  // If it's an object row, map by column names (case/space insensitive)
+  if (row && typeof row === "object") {
+    const normMap = {};
+    for (const k of Object.keys(row)) {
+      normMap[normalizeKey(k)] = row[k];
+    }
+    return (columns || []).map((c) => {
+      const v = normMap[normalizeKey(c)];
+      return v == null ? "" : String(v);
+    });
+  }
+
+  // Unknown row shape → blank row
+  return (columns || []).map(() => "");
 }
 
-function parseHolidayLines(text) {
-  return text
-    .split(/\r?\n|,/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
+function findStatusStartIndex(columns) {
+  const cols = columns || [];
+  const reqIdx = cols.findIndex((c) => normalizeKey(c) === "reqoff");
+  if (reqIdx >= 0) return reqIdx + 1;
+
+  const typeIdx = cols.findIndex((c) => normalizeKey(c) === "type");
+  if (typeIdx >= 0) return typeIdx + 2;
+
+  return 3;
 }
 
 function Toast({ toast, onClose }) {
@@ -119,10 +179,30 @@ function Toast({ toast, onClose }) {
   );
 }
 
-function CSVUpload({ onDrivers, embedded = false }) {
+/**
+ * ✅ CSV Import section (separate card now)
+ * Reads:
+ * - name (required)
+ * - civil_id (optional)
+ * - courier_id (optional)
+ * - origin/type (optional): local/overseas -> will auto-set type map
+ *
+ * Calls:
+ * - onImportedEmployees(employeesArray)
+ * - onImportedTypes(typesByName)
+ */
+function CSVImportSection({
+  employeesCount,
+  onImportedEmployees,
+  onImportedTypes,
+}) {
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
+
   const [nameCol, setNameCol] = useState("");
+  const [civilCol, setCivilCol] = useState("");
+  const [courierCol, setCourierCol] = useState("");
+  const [originCol, setOriginCol] = useState("");
 
   function handleFile(file) {
     Papa.parse(file, {
@@ -131,49 +211,107 @@ function CSVUpload({ onDrivers, embedded = false }) {
       complete: (result) => {
         const data = result.data || [];
         const cols = result.meta?.fields || [];
+
         setHeaders(cols);
         setRows(data);
-        setNameCol(cols.length ? guessNameColumn(cols) : "");
+
+        const guessedName = cols.length ? guessNameColumn(cols) : "";
+        const guessedCivil = guessByAliases(cols, [
+          "civil_id",
+          "civil id",
+          "civilid",
+          "cid",
+        ]);
+        const guessedCourier = guessByAliases(cols, [
+          "courier_id",
+          "courier id",
+          "courierid",
+          "driver_id",
+          "driver id",
+          "rider_id",
+          "rider id",
+        ]);
+
+        // origin/type column guess
+        const guessedOrigin = guessByAliases(cols, [
+          "origin",
+          "type",
+          "employee_type",
+          "driver_type",
+          "local/overseas",
+        ]);
+
+        setNameCol(guessedName);
+        setCivilCol(guessedCivil);
+        setCourierCol(guessedCourier);
+        setOriginCol(guessedOrigin);
       },
       error: () => {
         setHeaders([]);
         setRows([]);
         setNameCol("");
+        setCivilCol("");
+        setCourierCol("");
+        setOriginCol("");
       },
     });
   }
 
-  useEffect(() => {
+  function emitImport() {
     if (!rows.length || !nameCol) return;
-    const names = rows
-      .map((r) => (r?.[nameCol] ?? "").toString().trim())
-      .filter(Boolean);
-    onDrivers(Array.from(new Set(names)));
-  }, [rows, nameCol, onDrivers]);
+
+    // Deduplicate by name; keep ids; also collect types from origin
+    const map = new Map();
+    const typesFromCsv = {};
+
+    for (const r of rows) {
+      const name = (r?.[nameCol] ?? "").toString().trim();
+      if (!name) continue;
+
+      const civil_id = civilCol ? (r?.[civilCol] ?? "").toString().trim() : "";
+      const courier_id = courierCol
+        ? (r?.[courierCol] ?? "").toString().trim()
+        : "";
+
+      const originRaw = originCol ? r?.[originCol] : "";
+      const t = normalizeType(originRaw);
+
+      const prev = map.get(name);
+      map.set(name, {
+        name,
+        civil_id: prev?.civil_id || civil_id || "",
+        courier_id: prev?.courier_id || courier_id || "",
+      });
+
+      if (t) typesFromCsv[name] = t;
+    }
+
+    onImportedEmployees(Array.from(map.values()));
+    onImportedTypes(typesFromCsv);
+  }
+
+  // auto-emit when file/columns change
+  useEffect(() => {
+    emitImport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, nameCol, civilCol, courierCol, originCol]);
 
   return (
-    <div
-      className={
-        embedded
-          ? "min-w-0"
-          : "min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6"
-      }
-    >
-      {!embedded && (
-        <>
-          <h3 className="text-base font-semibold">Upload CSV</h3>
-          <p className="text-sm text-white/60 mt-1">
-            Only required from the CSV: the <b>driver names</b> column.
-          </p>
-        </>
-      )}
+    <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold">CSV Import</h3>
+          <div className="text-sm text-white/60 mt-1">
+            Required: <b>Name</b>. Optional: <b>Civil ID</b>, <b>Courier ID</b>,{" "}
+            <b>Origin</b> (local/overseas).
+          </div>
+        </div>
+        <div className="text-xs text-white/50 shrink-0">
+          Total loaded: <b className="text-white/80">{employeesCount}</b>
+        </div>
+      </div>
 
-      <div
-        className={classNames(
-          embedded ? "grid gap-3" : "mt-4 grid gap-3",
-          "min-w-0",
-        )}
-      >
+      <div className="mt-4 grid gap-3 min-w-0">
         <input
           type="file"
           accept=".csv"
@@ -188,21 +326,79 @@ function CSVUpload({ onDrivers, embedded = false }) {
         />
 
         {headers.length > 0 && (
-          <div className="grid gap-2 min-w-0">
-            <label className="text-xs font-medium text-white/70">
-              Driver name column
-            </label>
-            <select
-              value={nameCol}
-              onChange={(e) => setNameCol(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-            >
-              {headers.map((h) => (
-                <option key={h} value={h}>
-                  {h}
-                </option>
-              ))}
-            </select>
+          <div className="grid gap-3 min-w-0">
+            <div className="grid gap-2 min-w-0">
+              <label className="text-xs font-medium text-white/70">
+                Name column
+              </label>
+              <select
+                value={nameCol}
+                onChange={(e) => setNameCol(e.target.value)}
+                className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+              >
+                {headers.map((h) => (
+                  <option key={h} value={h}>
+                    {h}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
+              <div className="grid gap-2 min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Civil ID column (optional)
+                </label>
+                <select
+                  value={civilCol}
+                  onChange={(e) => setCivilCol(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                >
+                  <option value="">— none —</option>
+                  {headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2 min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Courier ID column (optional)
+                </label>
+                <select
+                  value={courierCol}
+                  onChange={(e) => setCourierCol(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                >
+                  <option value="">— none —</option>
+                  {headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid gap-2 min-w-0 sm:col-span-2 lg:col-span-1">
+                <label className="text-xs font-medium text-white/70">
+                  Origin / Type column (optional)
+                </label>
+                <select
+                  value={originCol}
+                  onChange={(e) => setOriginCol(e.target.value)}
+                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                >
+                  <option value="">— none —</option>
+                  {headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             <div className="text-xs text-white/50">
               Parsed rows: <b className="text-white/80">{rows.length}</b>
@@ -214,43 +410,62 @@ function CSVUpload({ onDrivers, embedded = false }) {
   );
 }
 
-function DriverTypeEditor({
-  drivers,
+/**
+ * ✅ Combined section: Manual Add (top) + Search + Employees table (below)
+ */
+function EmployeesSection({
+  employees,
+  setEmployees,
   types,
   setTypes,
+
   manualName,
   setManualName,
+  manualCivil,
+  setManualCivil,
+  manualCourier,
+  setManualCourier,
+
   onAddManual,
 }) {
   const [q, setQ] = useState("");
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return drivers;
-    return drivers.filter((d) => d.toLowerCase().includes(s));
-  }, [drivers, q]);
+    if (!s) return employees;
+    return employees.filter((e) => {
+      const hay =
+        `${e.name} ${e.civil_id || ""} ${e.courier_id || ""}`.toLowerCase();
+      return hay.includes(s);
+    });
+  }, [employees, q]);
 
   function setAll(t) {
     const next = { ...types };
-    drivers.forEach((d) => (next[d] = t));
+    employees.forEach((e) => (next[e.name] = t));
     setTypes(next);
+  }
+
+  function patchEmployee(name, patch) {
+    setEmployees((prev) =>
+      prev.map((e) => (e.name === name ? { ...e, ...patch } : e)),
+    );
   }
 
   return (
     <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
-      {/* Title */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-base font-semibold">Employees</h3>
-            <span className="text-xs text-white/50">({drivers.length})</span>
+            <span className="text-xs text-white/50">({employees.length})</span>
           </div>
           <p className="text-sm text-white/60 mt-1">
-            Add drivers, search, then set type.
+            Add manually here. CSV import is a separate section.
           </p>
         </div>
-        {/* Right: bulk buttons */}
-        <div className="flex flex-wrap gap-2 lg:justify-end lg:w-auto shrink-0">
+
+        <div className="flex flex-wrap gap-2 shrink-0">
           <button
             onClick={() => setAll("local")}
             className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 hover:bg-white/10"
@@ -266,39 +481,52 @@ function DriverTypeEditor({
         </div>
       </div>
 
-      {/* Controls row */}
-      <div className="mt-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0 w-full">
-        {/* Left: Add + Search (same row on lg, stacked on mobile) */}
-        <div className="flex flex-col sm:flex-row gap-3 min-w-0 w-full">
-          {/* Add driver (input + button always together) */}
-          <div className="flex gap-2 min-w-0 w-full sm:w-1/2">
-            <input
-              value={manualName}
-              onChange={(e) => setManualName(e.target.value)}
-              placeholder="Add driver..."
-              className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-            />
-            <button
-              onClick={onAddManual}
-              className="shrink-0 rounded-2xl px-4 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition"
-            >
-              Add
-            </button>
-          </div>
+      {/* ✅ Manual add (above table) */}
+      <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-3 min-w-0">
+        <div className="lg:col-span-4 min-w-0">
+          <input
+            value={manualName}
+            onChange={(e) => setManualName(e.target.value)}
+            placeholder="Name..."
+            className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+          />
+        </div>
+        <div className="lg:col-span-3 min-w-0">
+          <input
+            value={manualCivil}
+            onChange={(e) => setManualCivil(e.target.value)}
+            placeholder="Civil ID..."
+            className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+          />
+        </div>
+        <div className="lg:col-span-3 min-w-0">
+          <input
+            value={manualCourier}
+            onChange={(e) => setManualCourier(e.target.value)}
+            placeholder="Courier ID..."
+            className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+          />
+        </div>
+        <div className="lg:col-span-2 min-w-0">
+          <button
+            onClick={onAddManual}
+            className="w-full rounded-2xl px-4 py-2 font-semibold bg-[#d3fb00] text-black hover:brightness-95 transition"
+          >
+            Add
+          </button>
+        </div>
+      </div>
 
-          {/* Search (input + counter always together) */}
-          <div className="flex gap-2 min-w-0 w-full sm:w-1/2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search..."
-              className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-            />
-            <div className="shrink-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60 whitespace-nowrap flex items-center">
-              <b className="text-white/80">{filtered.length}</b>/
-              {drivers.length}
-            </div>
-          </div>
+      {/* Search */}
+      <div className="mt-3 flex gap-2 min-w-0 w-full">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search name / civil / courier..."
+          className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+        />
+        <div className="shrink-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60 whitespace-nowrap flex items-center">
+          <b className="text-white/80">{filtered.length}</b>/{employees.length}
         </div>
       </div>
 
@@ -308,23 +536,55 @@ function DriverTypeEditor({
           <thead className="sticky top-0 bg-black/40 backdrop-blur border-b border-white/10">
             <tr>
               <th className="text-left p-3 font-semibold">Name</th>
+              <th className="text-left p-3 font-semibold w-[220px]">
+                Civil ID
+              </th>
+              <th className="text-left p-3 font-semibold w-[200px]">
+                Courier ID
+              </th>
               <th className="text-left p-3 font-semibold w-44">Type</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((name) => (
+            {filtered.map((emp) => (
               <tr
-                key={name}
+                key={emp.name}
                 className="border-b border-white/10 last:border-b-0"
               >
                 <td className="p-3 font-medium text-white/90 break-words">
-                  {name}
+                  {emp.name}
                 </td>
+
+                <td className="p-3">
+                  <input
+                    value={emp.civil_id || ""}
+                    onChange={(e) =>
+                      patchEmployee(emp.name, { civil_id: e.target.value })
+                    }
+                    placeholder="Civil ID..."
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                  />
+                </td>
+
+                <td className="p-3">
+                  <input
+                    value={emp.courier_id || ""}
+                    onChange={(e) =>
+                      patchEmployee(emp.name, { courier_id: e.target.value })
+                    }
+                    placeholder="Courier ID..."
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                  />
+                </td>
+
                 <td className="p-3">
                   <select
-                    value={types[name] || "local"}
+                    value={types[emp.name] || "local"}
                     onChange={(e) =>
-                      setTypes((prev) => ({ ...prev, [name]: e.target.value }))
+                      setTypes((prev) => ({
+                        ...prev,
+                        [emp.name]: e.target.value,
+                      }))
                     }
                     className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
                   >
@@ -335,10 +595,10 @@ function DriverTypeEditor({
               </tr>
             ))}
 
-            {!drivers.length && (
+            {!employees.length && (
               <tr>
-                <td className="p-3 text-white/50" colSpan={2}>
-                  Upload a CSV first (from Rules) or add drivers above.
+                <td className="p-3 text-white/50" colSpan={4}>
+                  Import CSV above or add manually.
                 </td>
               </tr>
             )}
@@ -379,30 +639,46 @@ function downloadExcelFromSchedule(
   const Issues = S.Issues;
 
   if (Matrix?.columns && Matrix?.rows) {
+    const cols = Matrix.columns;
+    const statusStart = findStatusStartIndex(cols);
+    const statusStartCol = statusStart + 1;
+    const freezeCols = Math.max(0, statusStartCol - 1);
+
     const ws = wb.addWorksheet("Matrix");
-    ws.addRow(Matrix.columns);
+    ws.addRow(cols);
     ws.getRow(1).eachCell((cell) => {
       cell.fill = headerFill;
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
       cell.alignment = center;
     });
-    for (const row of Matrix.rows) ws.addRow(row);
+
+    for (const row of Matrix.rows) ws.addRow(rowToArray(row, cols));
 
     for (let r = 2; r <= ws.rowCount; r++) {
-      for (let c = 4; c <= ws.columnCount; c++) {
+      for (let c = statusStartCol; c <= ws.columnCount; c++) {
         const cell = ws.getRow(r).getCell(c);
         cell.alignment = center;
         cell.fill = cell.value === "OFF" ? redFill : greenFill;
         cell.font = { color: { argb: "FFFFFF" } };
       }
-      ws.getRow(r).getCell(1).font = { bold: true, color: { argb: "FFFFFF" } };
+      // inside Matrix formatting loop
+      const nameCell = ws.getRow(r).getCell(1);
+      nameCell.font = { bold: true }; // ✅ don't set white color
+      nameCell.alignment = {
+        vertical: "middle",
+        horizontal: "left",
+        wrapText: true,
+      };
     }
 
-    ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
+    ws.views = [{ state: "frozen", xSplit: freezeCols, ySplit: 1 }];
+
     ws.getColumn(1).width = 22;
-    ws.getColumn(2).width = 12;
-    ws.getColumn(3).width = 8;
-    for (let c = 4; c <= ws.columnCount; c++) ws.getColumn(c).width = 12;
+    ws.getColumn(2).width = 22;
+    ws.getColumn(3).width = 18;
+    ws.getColumn(4).width = 12;
+    ws.getColumn(5).width = 8;
+    for (let c = 6; c <= ws.columnCount; c++) ws.getColumn(c).width = 12;
   }
 
   if (ByDay?.columns && ByDay?.rows && ByDay?.status) {
@@ -415,9 +691,9 @@ function downloadExcelFromSchedule(
     });
 
     for (let r = 0; r < ByDay.rows.length; r++) {
-      ws.addRow(ByDay.rows[r]);
+      ws.addRow(rowToArray(ByDay.rows[r], ByDay.columns));
       const excelRow = ws.getRow(r + 2);
-      for (let c = 0; c < ByDay.rows[r].length; c++) {
+      for (let c = 0; c < ByDay.columns.length; c++) {
         const cell = excelRow.getCell(c + 1);
         const st = ByDay.status?.[r]?.[c] || "WORK";
         cell.fill = st === "OFF" ? redFill : greenFill;
@@ -437,7 +713,7 @@ function downloadExcelFromSchedule(
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
       cell.alignment = center;
     });
-    for (const row of Summary.rows) ws.addRow(row);
+    for (const row of Summary.rows) ws.addRow(rowToArray(row, Summary.columns));
     for (let c = 1; c <= ws.columnCount; c++) ws.getColumn(c).width = 16;
   }
 
@@ -449,7 +725,7 @@ function downloadExcelFromSchedule(
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
       cell.alignment = center;
     });
-    for (const row of Issues.rows) ws.addRow(row);
+    for (const row of Issues.rows) ws.addRow(rowToArray(row, Issues.columns));
     ws.getColumn(1).width = 120;
   }
 
@@ -468,9 +744,7 @@ function ResultsView({ schedule }) {
 
   const meta = schedule.meta || {};
   const issues = schedule.issues || [];
-
   const matrix = schedule.sheets?.Matrix;
-  const summary = schedule.sheets?.Summary;
 
   return (
     <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
@@ -539,7 +813,7 @@ function ResultsView({ schedule }) {
         </div>
       </div>
 
-      {/* ✅ Matrix: ONLY this area horizontal-scrolls */}
+      {/* Matrix only */}
       {matrix?.columns && matrix?.rows && (
         <div className="mt-6 min-w-0">
           <div className="flex items-center justify-between">
@@ -562,27 +836,31 @@ function ResultsView({ schedule }) {
                 </tr>
               </thead>
               <tbody>
-                {matrix.rows.slice(0, 200).map((row, rIdx) => (
-                  <tr
-                    key={rIdx}
-                    className="border-b border-white/10 last:border-b-0"
-                  >
-                    {row.map((cell, cIdx) => (
-                      <td
-                        key={cIdx}
-                        className={classNames(
-                          "p-2 whitespace-nowrap",
-                          cIdx >= 3 &&
-                            (cell === "OFF"
-                              ? "text-red-300 bg-red-500/10"
-                              : "text-emerald-300 bg-emerald-500/10"),
-                        )}
-                      >
-                        {String(cell)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {matrix.rows.slice(0, 200).map((row, rIdx) => {
+                  const arr = rowToArray(row, matrix.columns);
+                  const statusStart = findStatusStartIndex(matrix.columns);
+                  return (
+                    <tr
+                      key={rIdx}
+                      className="border-b border-white/10 last:border-b-0"
+                    >
+                      {arr.map((cell, cIdx) => (
+                        <td
+                          key={cIdx}
+                          className={classNames(
+                            "p-2 whitespace-nowrap",
+                            cIdx >= statusStart &&
+                              (cell === "OFF"
+                                ? "text-red-300 bg-red-500/10"
+                                : "text-emerald-300 bg-emerald-500/10"),
+                          )}
+                        >
+                          {String(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -600,15 +878,11 @@ function ResultsView({ schedule }) {
 
 function PublicHolidaysPicker({ value, onChange }) {
   const [draft, setDraft] = useState("");
-
   const holidays = Array.isArray(value) ? value : [];
 
   function addDate() {
     const d = (draft || "").trim();
     if (!d) return;
-
-    // ensure YYYY-MM-DD format (native date input already gives this)
-    // prevent duplicates
     const next = Array.from(new Set([...holidays, d])).sort();
     onChange(next);
     setDraft("");
@@ -642,7 +916,6 @@ function PublicHolidaysPicker({ value, onChange }) {
         </button>
       </div>
 
-      {/* Add row */}
       <div className="mt-3 flex flex-col sm:flex-row gap-2 min-w-0">
         <input
           type="date"
@@ -664,7 +937,6 @@ function PublicHolidaysPicker({ value, onChange }) {
         </div>
       </div>
 
-      {/* Chips */}
       <div className="mt-3 flex flex-wrap gap-2">
         {holidays.length ? (
           holidays.map((d) => (
@@ -708,27 +980,31 @@ export default function SchedulerPage() {
   const [excluded, setExcluded] = useState(["friday"]);
   const [publicHolidays, setPublicHolidays] = useState([]);
 
-  const [drivers, setDrivers] = useState([]);
-  const [types, setTypes] = useState({});
+  const [employees, setEmployees] = useState([]); // [{name,civil_id,courier_id}]
+  const [types, setTypes] = useState({}); // { [name]: local|overseas }
+
   const [manualName, setManualName] = useState("");
+  const [manualCivil, setManualCivil] = useState("");
+  const [manualCourier, setManualCourier] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [schedule, setSchedule] = useState(null);
 
+  // keep types aligned
   useEffect(() => {
     setTypes((prev) => {
       const next = { ...prev };
-      drivers.forEach((d) => {
-        if (!next[d]) next[d] = "local";
+      employees.forEach((e) => {
+        if (!next[e.name]) next[e.name] = "local";
       });
       Object.keys(next).forEach((k) => {
-        if (!drivers.includes(k)) delete next[k];
+        if (!employees.some((e) => e.name === k)) delete next[k];
       });
       return next;
     });
-  }, [drivers]);
+  }, [employees]);
 
-  // ✅ Prevent page-level horizontal scroll (tables still scroll horizontally)
+  // prevent page-level horizontal scroll
   useEffect(() => {
     document.documentElement.classList.add("overflow-x-hidden");
     document.body.classList.add("overflow-x-hidden");
@@ -748,32 +1024,96 @@ export default function SchedulerPage() {
     nav("/login", { replace: true });
   }
 
-  function addManualDriver() {
-    const nm = manualName.trim();
-    if (!nm) return;
-    setDrivers((prev) => Array.from(new Set([...prev, nm])));
+  function mergeImportedEmployees(imported) {
+    setEmployees((prev) => {
+      const map = new Map(prev.map((e) => [e.name, { ...e }]));
+      for (const e of imported || []) {
+        if (!e?.name) continue;
+        const existing = map.get(e.name);
+        map.set(e.name, {
+          name: e.name,
+          civil_id: existing?.civil_id || e.civil_id || "",
+          courier_id: existing?.courier_id || e.courier_id || "",
+        });
+      }
+      return Array.from(map.values()).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+    });
+  }
+
+  // ✅ types from CSV origin column will auto-apply (but won't overwrite if user already set it)
+  function applyImportedTypes(typesFromCsv) {
+    if (!typesFromCsv) return;
+    setTypes((prev) => {
+      const next = { ...prev };
+      for (const [name, t] of Object.entries(typesFromCsv)) {
+        if (!next[name]) next[name] = t; // only set if not already set
+      }
+      return next;
+    });
+  }
+
+  function addManualEmployee() {
+    const name = manualName.trim();
+    const civil_id = manualCivil.trim();
+    const courier_id = manualCourier.trim();
+
+    if (!name || !civil_id || !courier_id) {
+      return showToast(
+        "error",
+        "Please enter Name, Civil ID, and Courier ID before adding.",
+      );
+    }
+
+    setEmployees((prev) => {
+      const exists = prev.find((e) => e.name === name);
+      if (exists) {
+        return prev.map((e) =>
+          e.name === name ? { ...e, civil_id, courier_id } : e,
+        );
+      }
+      return [...prev, { name, civil_id, courier_id }];
+    });
+
+    // default type if missing
+    setTypes((prev) => ({ ...prev, [name]: prev[name] || "local" }));
+
     setManualName("");
+    setManualCivil("");
+    setManualCourier("");
   }
 
   async function generate() {
     if (!token) return showToast("error", "You must login again.");
     if (!API_BASE) return showToast("error", "Missing VITE_API_BASE in .env");
-    if (!drivers.length)
+    if (!employees.length)
       return showToast(
         "error",
-        "No drivers found. Upload a CSV or add drivers manually.",
+        "No employees found. Upload a CSV or add employees manually.",
       );
 
-    const employees = drivers.reduce((acc, name) => {
-      acc[name] = types[name] || "local";
-      return acc;
-    }, {});
+    const missing = employees.filter(
+      (e) =>
+        !String(e.civil_id || "").trim() || !String(e.courier_id || "").trim(),
+    );
+    if (missing.length) {
+      return showToast(
+        "error",
+        `Missing Civil ID / Courier ID for ${missing.length} employee(s). Please fill them in Employees table.`,
+      );
+    }
 
     const payload = {
       year: Number(year),
       month,
       start_day: Number(startDay),
-      employees,
+      employees: employees.map((e) => ({
+        name: String(e.name || "").trim(),
+        type: types[e.name] || "local",
+        civil_id: String(e.civil_id || "").trim(),
+        courier_id: String(e.courier_id || "").trim(),
+      })),
       public_holidays: publicHolidays,
       excluded_weekdays: excluded,
       local_off_days: Number(localOffDays),
@@ -791,6 +1131,7 @@ export default function SchedulerPage() {
         body: JSON.stringify(payload),
       });
       setSchedule(data);
+      console.log("Generated schedule:", data);
       showToast("success", "Schedule generated");
     } catch (e) {
       showToast("error", e.message || "Failed");
@@ -798,6 +1139,8 @@ export default function SchedulerPage() {
       setLoading(false);
     }
   }
+
+  const showEmployeesSection = !schedule;
 
   return (
     <div className="min-h-screen text-white bg-gradient-to-b from-[#150327] via-[#1c0533] to-[#22093b] overflow-x-hidden">
@@ -811,7 +1154,7 @@ export default function SchedulerPage() {
             <div className="leading-tight min-w-0">
               <div className="font-bold truncate">Driver Schedule</div>
               <div className="text-xs text-white/50 truncate">
-                Upload → rules → generate → export
+                Import → rules → generate → export
               </div>
             </div>
           </div>
@@ -827,13 +1170,22 @@ export default function SchedulerPage() {
       {/* Page */}
       <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 min-w-0">
         <div className="grid gap-4 min-w-0">
-          {/* ✅ RULES (FULL WIDTH) + CSV UPLOAD INSIDE */}
+          {/* ✅ CSV IMPORT is now its own section */}
+          {showEmployeesSection && (
+            <CSVImportSection
+              employeesCount={employees.length}
+              onImportedEmployees={mergeImportedEmployees}
+              onImportedTypes={applyImportedTypes}
+            />
+          )}
+
+          {/* ✅ RULES (FULL WIDTH) */}
           <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold">Rules</h2>
                 <p className="text-sm text-white/60 mt-1">
-                  Upload employees, set rules, then generate.
+                  Set rules then generate.
                 </p>
               </div>
 
@@ -846,120 +1198,93 @@ export default function SchedulerPage() {
               </button>
             </div>
 
-            {/* ✅ CSV Upload lives here */}
-            <div className="mt-5 grid grid-cols-1 lg:grid-cols-12 gap-4 min-w-0">
-              <div className="lg:col-span-4 min-w-0">
-                <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold">
-                        Upload employees
-                      </div>
-                      <div className="text-xs text-white/50 mt-1">
-                        CSV only needs the driver names column.
-                      </div>
-                    </div>
-                    <div className="text-xs text-white/50 shrink-0">
-                      Loaded: <b className="text-white/80">{drivers.length}</b>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 min-w-0">
-                    <CSVUpload onDrivers={setDrivers} embedded />
-                  </div>
-                </div>
+            {/* Rule inputs */}
+            <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
+              <div className="min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Year
+                </label>
+                <input
+                  type="number"
+                  value={year}
+                  onChange={(e) => setYear(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                />
               </div>
 
-              {/* Rule inputs */}
-              <div className="lg:col-span-8 min-w-0">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-white/70">
-                      Year
-                    </label>
-                    <input
-                      type="number"
-                      value={year}
-                      onChange={(e) => setYear(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                    />
-                  </div>
+              <div className="min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Month
+                </label>
+                <select
+                  value={month}
+                  onChange={(e) => setMonth(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                >
+                  {MONTHS.map((m) => (
+                    <option key={m} value={m}>
+                      {m[0].toUpperCase() + m.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-white/70">
-                      Month
-                    </label>
-                    <select
-                      value={month}
-                      onChange={(e) => setMonth(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                    >
-                      {MONTHS.map((m) => (
-                        <option key={m} value={m}>
-                          {m[0].toUpperCase() + m.slice(1)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <div className="min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Start day
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={startDay}
+                  onChange={(e) => setStartDay(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                />
+              </div>
 
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-white/70">
-                      Start day
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      value={startDay}
-                      onChange={(e) => setStartDay(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                    />
-                  </div>
+              <div className="min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Local off days
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={31}
+                  value={localOffDays}
+                  onChange={(e) => setLocalOffDays(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                />
+              </div>
 
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-white/70">
-                      Local off days
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={31}
-                      value={localOffDays}
-                      onChange={(e) => setLocalOffDays(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                    />
-                  </div>
+              <div className="min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Overseas off days
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={31}
+                  value={overseasOffDays}
+                  onChange={(e) => setOverseasOffDays(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                />
+              </div>
 
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-white/70">
-                      Overseas off days
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={31}
-                      value={overseasOffDays}
-                      onChange={(e) => setOverseasOffDays(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                    />
-                  </div>
-
-                  <div className="min-w-0">
-                    <label className="text-xs font-medium text-white/70">
-                      Driver percentage cap{" "}
-                      <span className="text-white/40">(0..1)</span>
-                    </label>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min="0"
-                      max="1"
-                      value={cap}
-                      onChange={(e) => setCap(e.target.value)}
-                      className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                    />
-                  </div>
-                </div>
+              <div className="min-w-0">
+                <label className="text-xs font-medium text-white/70">
+                  Driver percentage cap{" "}
+                  <span className="text-white/40">(0..1)</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0"
+                  max="1"
+                  value={cap}
+                  onChange={(e) => setCap(e.target.value)}
+                  className="mt-1 w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                />
               </div>
             </div>
 
@@ -1006,15 +1331,25 @@ export default function SchedulerPage() {
               </div>
             </div>
           </div>
-          <DriverTypeEditor
-            drivers={drivers}
-            types={types}
-            setTypes={setTypes}
-            manualName={manualName}
-            setManualName={setManualName}
-            onAddManual={addManualDriver}
-          />
-          {/* ✅ RESULTS BELOW (only shows after generate) */}
+
+          {/* ✅ Manual add is inside Employees section above table */}
+          {showEmployeesSection && (
+            <EmployeesSection
+              employees={employees}
+              setEmployees={setEmployees}
+              types={types}
+              setTypes={setTypes}
+              manualName={manualName}
+              setManualName={setManualName}
+              manualCivil={manualCivil}
+              setManualCivil={setManualCivil}
+              manualCourier={manualCourier}
+              setManualCourier={setManualCourier}
+              onAddManual={addManualEmployee}
+            />
+          )}
+
+          {/* Results */}
           {schedule && <ResultsView schedule={schedule} />}
         </div>
       </div>

@@ -44,11 +44,8 @@ function normalizeKey(s) {
 }
 
 function normalizeType(v) {
-  const s = String(v || "")
-    .trim()
-    .toLowerCase();
+  const s = String(v || "").trim().toLowerCase();
   if (!s) return "";
-  // handle common variants
   if (s.includes("over")) return "overseas";
   if (s.includes("local")) return "local";
   if (s === "o") return "overseas";
@@ -58,13 +55,9 @@ function normalizeType(v) {
 
 function guessNameColumn(headers) {
   const lower = (headers || []).map((h) =>
-    String(h || "")
-      .trim()
-      .toLowerCase(),
+    String(h || "").trim().toLowerCase(),
   );
-  const idx1 = lower.findIndex(
-    (h) => h.includes("driver") && h.includes("name"),
-  );
+  const idx1 = lower.findIndex((h) => h.includes("driver") && h.includes("name"));
   if (idx1 !== -1) return headers[idx1];
   const idx2 = lower.findIndex(
     (h) => h === "driver" || h === "drivers" || h === "name" || h === "names",
@@ -89,10 +82,12 @@ async function apiFetch(path, { token, ...opts } = {}) {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+
   const isJson = (res.headers.get("content-type") || "").includes(
     "application/json",
   );
   const body = isJson ? await res.json() : await res.text();
+
   if (!res.ok) {
     const msg = body?.detail || body?.message || JSON.stringify(body);
     throw new Error(msg || `Request failed (${res.status})`);
@@ -101,18 +96,15 @@ async function apiFetch(path, { token, ...opts } = {}) {
 }
 
 function rowToArray(row, columns) {
-  // If already an array, return as-is (but ensure length matches columns)
   if (Array.isArray(row)) {
     const arr = row.map((v) => (v == null ? "" : String(v)));
     if (!columns?.length) return arr;
-    // pad/trim to columns length
     if (arr.length < columns.length)
       return [...arr, ...Array(columns.length - arr.length).fill("")];
     if (arr.length > columns.length) return arr.slice(0, columns.length);
     return arr;
   }
 
-  // If it's an object row, map by column names (case/space insensitive)
   if (row && typeof row === "object") {
     const normMap = {};
     for (const k of Object.keys(row)) {
@@ -124,7 +116,6 @@ function rowToArray(row, columns) {
     });
   }
 
-  // Unknown row shape → blank row
   return (columns || []).map(() => "");
 }
 
@@ -142,6 +133,7 @@ function findStatusStartIndex(columns) {
 function Toast({ toast, onClose }) {
   if (!toast) return null;
   const isErr = toast.type === "error";
+
   return (
     <div className="fixed bottom-4 right-4 z-50 w-[92vw] max-w-md">
       <div
@@ -180,28 +172,22 @@ function Toast({ toast, onClose }) {
 }
 
 /**
- * ✅ CSV Import section (separate card now)
+ * CSV Import section
  * Reads:
  * - name (required)
  * - civil_id (optional)
- * - courier_id (optional)
  * - origin/type (optional): local/overseas -> will auto-set type map
  *
  * Calls:
  * - onImportedEmployees(employeesArray)
  * - onImportedTypes(typesByName)
  */
-function CSVImportSection({
-  employeesCount,
-  onImportedEmployees,
-  onImportedTypes,
-}) {
+function CSVImportSection({ employeesCount, onImportedEmployees, onImportedTypes }) {
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
 
   const [nameCol, setNameCol] = useState("");
   const [civilCol, setCivilCol] = useState("");
-  const [courierCol, setCourierCol] = useState("");
   const [originCol, setOriginCol] = useState("");
 
   function handleFile(file) {
@@ -222,17 +208,7 @@ function CSVImportSection({
           "civilid",
           "cid",
         ]);
-        const guessedCourier = guessByAliases(cols, [
-          "courier_id",
-          "courier id",
-          "courierid",
-          "driver_id",
-          "driver id",
-          "rider_id",
-          "rider id",
-        ]);
 
-        // origin/type column guess
         const guessedOrigin = guessByAliases(cols, [
           "origin",
           "type",
@@ -243,7 +219,6 @@ function CSVImportSection({
 
         setNameCol(guessedName);
         setCivilCol(guessedCivil);
-        setCourierCol(guessedCourier);
         setOriginCol(guessedOrigin);
       },
       error: () => {
@@ -251,7 +226,6 @@ function CSVImportSection({
         setRows([]);
         setNameCol("");
         setCivilCol("");
-        setCourierCol("");
         setOriginCol("");
       },
     });
@@ -260,7 +234,6 @@ function CSVImportSection({
   function emitImport() {
     if (!rows.length || !nameCol) return;
 
-    // Deduplicate by name; keep ids; also collect types from origin
     const map = new Map();
     const typesFromCsv = {};
 
@@ -269,9 +242,6 @@ function CSVImportSection({
       if (!name) continue;
 
       const civil_id = civilCol ? (r?.[civilCol] ?? "").toString().trim() : "";
-      const courier_id = courierCol
-        ? (r?.[courierCol] ?? "").toString().trim()
-        : "";
 
       const originRaw = originCol ? r?.[originCol] : "";
       const t = normalizeType(originRaw);
@@ -280,7 +250,6 @@ function CSVImportSection({
       map.set(name, {
         name,
         civil_id: prev?.civil_id || civil_id || "",
-        courier_id: prev?.courier_id || courier_id || "",
       });
 
       if (t) typesFromCsv[name] = t;
@@ -290,11 +259,10 @@ function CSVImportSection({
     onImportedTypes(typesFromCsv);
   }
 
-  // auto-emit when file/columns change
   useEffect(() => {
     emitImport();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, nameCol, civilCol, courierCol, originCol]);
+  }, [rows, nameCol, civilCol, originCol]);
 
   return (
     <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
@@ -302,8 +270,8 @@ function CSVImportSection({
         <div className="min-w-0">
           <h3 className="text-base font-semibold">CSV Import</h3>
           <div className="text-sm text-white/60 mt-1">
-            Required: <b>Name</b>. Optional: <b>Civil ID</b>, <b>Courier ID</b>,{" "}
-            <b>Origin</b> (local/overseas).
+            Required: <b>Name</b>. Optional: <b>Civil ID</b>, <b>Origin</b>{" "}
+            (local/overseas).
           </div>
         </div>
         <div className="text-xs text-white/50 shrink-0">
@@ -344,7 +312,7 @@ function CSVImportSection({
               </select>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
               <div className="grid gap-2 min-w-0">
                 <label className="text-xs font-medium text-white/70">
                   Civil ID column (optional)
@@ -364,24 +332,6 @@ function CSVImportSection({
               </div>
 
               <div className="grid gap-2 min-w-0">
-                <label className="text-xs font-medium text-white/70">
-                  Courier ID column (optional)
-                </label>
-                <select
-                  value={courierCol}
-                  onChange={(e) => setCourierCol(e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                >
-                  <option value="">— none —</option>
-                  {headers.map((h) => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid gap-2 min-w-0 sm:col-span-2 lg:col-span-1">
                 <label className="text-xs font-medium text-white/70">
                   Origin / Type column (optional)
                 </label>
@@ -411,7 +361,7 @@ function CSVImportSection({
 }
 
 /**
- * ✅ Combined section: Manual Add (top) + Search + Employees table (below)
+ * Employees section: manual add + search + table
  */
 function EmployeesSection({
   employees,
@@ -423,8 +373,6 @@ function EmployeesSection({
   setManualName,
   manualCivil,
   setManualCivil,
-  manualCourier,
-  setManualCourier,
 
   onAddManual,
 }) {
@@ -434,8 +382,7 @@ function EmployeesSection({
     const s = q.trim().toLowerCase();
     if (!s) return employees;
     return employees.filter((e) => {
-      const hay =
-        `${e.name} ${e.civil_id || ""} ${e.courier_id || ""}`.toLowerCase();
+      const hay = `${e.name} ${e.civil_id || ""}`.toLowerCase();
       return hay.includes(s);
     });
   }, [employees, q]);
@@ -481,9 +428,9 @@ function EmployeesSection({
         </div>
       </div>
 
-      {/* ✅ Manual add (above table) */}
+      {/* Manual add */}
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-3 min-w-0">
-        <div className="lg:col-span-4 min-w-0">
+        <div className="lg:col-span-6 min-w-0">
           <input
             value={manualName}
             onChange={(e) => setManualName(e.target.value)}
@@ -491,19 +438,11 @@ function EmployeesSection({
             className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
           />
         </div>
-        <div className="lg:col-span-3 min-w-0">
+        <div className="lg:col-span-4 min-w-0">
           <input
             value={manualCivil}
             onChange={(e) => setManualCivil(e.target.value)}
             placeholder="Civil ID..."
-            className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-          />
-        </div>
-        <div className="lg:col-span-3 min-w-0">
-          <input
-            value={manualCourier}
-            onChange={(e) => setManualCourier(e.target.value)}
-            placeholder="Courier ID..."
             className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
           />
         </div>
@@ -522,7 +461,7 @@ function EmployeesSection({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search name / civil / courier..."
+          placeholder="Search name / civil..."
           className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
         />
         <div className="shrink-0 rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/60 whitespace-nowrap flex items-center">
@@ -538,9 +477,6 @@ function EmployeesSection({
               <th className="text-left p-3 font-semibold">Name</th>
               <th className="text-left p-3 font-semibold w-[220px]">
                 Civil ID
-              </th>
-              <th className="text-left p-3 font-semibold w-[200px]">
-                Courier ID
               </th>
               <th className="text-left p-3 font-semibold w-44">Type</th>
             </tr>
@@ -567,17 +503,6 @@ function EmployeesSection({
                 </td>
 
                 <td className="p-3">
-                  <input
-                    value={emp.courier_id || ""}
-                    onChange={(e) =>
-                      patchEmployee(emp.name, { courier_id: e.target.value })
-                    }
-                    placeholder="Courier ID..."
-                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </td>
-
-                <td className="p-3">
                   <select
                     value={types[emp.name] || "local"}
                     onChange={(e) =>
@@ -597,8 +522,8 @@ function EmployeesSection({
 
             {!employees.length && (
               <tr>
-                <td className="p-3 text-white/50" colSpan={4}>
-                  Import CSV above or add manually.
+                <td className="p-3 text-white/50" colSpan={3}>
+                  Import CSV above or add employees manually.
                 </td>
               </tr>
             )}
@@ -609,10 +534,7 @@ function EmployeesSection({
   );
 }
 
-function downloadExcelFromSchedule(
-  schedule,
-  filename = "driver_schedule.xlsx",
-) {
+function downloadExcelFromSchedule(schedule, filename = "driver_schedule.xlsx") {
   const wb = new ExcelJS.Workbook();
 
   const headerFill = {
@@ -646,6 +568,7 @@ function downloadExcelFromSchedule(
 
     const ws = wb.addWorksheet("Matrix");
     ws.addRow(cols);
+
     ws.getRow(1).eachCell((cell) => {
       cell.fill = headerFill;
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
@@ -661,9 +584,10 @@ function downloadExcelFromSchedule(
         cell.fill = cell.value === "OFF" ? redFill : greenFill;
         cell.font = { color: { argb: "FFFFFF" } };
       }
-      // inside Matrix formatting loop
+
+      // Name cell should be visible (don't force white on white)
       const nameCell = ws.getRow(r).getCell(1);
-      nameCell.font = { bold: true }; // ✅ don't set white color
+      nameCell.font = { bold: true };
       nameCell.alignment = {
         vertical: "middle",
         horizontal: "left",
@@ -673,17 +597,19 @@ function downloadExcelFromSchedule(
 
     ws.views = [{ state: "frozen", xSplit: freezeCols, ySplit: 1 }];
 
-    ws.getColumn(1).width = 22;
-    ws.getColumn(2).width = 22;
-    ws.getColumn(3).width = 18;
-    ws.getColumn(4).width = 12;
-    ws.getColumn(5).width = 8;
-    for (let c = 6; c <= ws.columnCount; c++) ws.getColumn(c).width = 12;
+    // NOTE: widths assume your Matrix columns now are:
+    // [Name, Civil ID, Type, ReqOff, ...dates]
+    ws.getColumn(1).width = 22; // Name
+    ws.getColumn(2).width = 22; // Civil ID
+    ws.getColumn(3).width = 12; // Type
+    ws.getColumn(4).width = 8; // ReqOff
+    for (let c = 5; c <= ws.columnCount; c++) ws.getColumn(c).width = 12;
   }
 
   if (ByDay?.columns && ByDay?.rows && ByDay?.status) {
     const ws = wb.addWorksheet("ByDay");
     ws.addRow(ByDay.columns);
+
     ws.getRow(1).eachCell((cell) => {
       cell.fill = headerFill;
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
@@ -693,6 +619,7 @@ function downloadExcelFromSchedule(
     for (let r = 0; r < ByDay.rows.length; r++) {
       ws.addRow(rowToArray(ByDay.rows[r], ByDay.columns));
       const excelRow = ws.getRow(r + 2);
+
       for (let c = 0; c < ByDay.columns.length; c++) {
         const cell = excelRow.getCell(c + 1);
         const st = ByDay.status?.[r]?.[c] || "WORK";
@@ -708,11 +635,13 @@ function downloadExcelFromSchedule(
   if (Summary?.columns && Summary?.rows) {
     const ws = wb.addWorksheet("Summary");
     ws.addRow(Summary.columns);
+
     ws.getRow(1).eachCell((cell) => {
       cell.fill = headerFill;
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
       cell.alignment = center;
     });
+
     for (const row of Summary.rows) ws.addRow(rowToArray(row, Summary.columns));
     for (let c = 1; c <= ws.columnCount; c++) ws.getColumn(c).width = 16;
   }
@@ -720,11 +649,13 @@ function downloadExcelFromSchedule(
   if (Issues?.columns && Issues?.rows) {
     const ws = wb.addWorksheet("Issues");
     ws.addRow(Issues.columns);
+
     ws.getRow(1).eachCell((cell) => {
       cell.fill = headerFill;
       cell.font = { bold: true, color: { argb: "FFFFFF" } };
       cell.alignment = center;
     });
+
     for (const row of Issues.rows) ws.addRow(rowToArray(row, Issues.columns));
     ws.getColumn(1).width = 120;
   }
@@ -775,15 +706,11 @@ function ResultsView({ schedule }) {
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0">
         <div className="rounded-2xl border border-white/10 bg-black/20 p-4 min-w-0">
           <div className="text-xs text-white/50">Drivers</div>
-          <div className="text-2xl font-bold">
-            {meta.counts?.drivers ?? "-"}
-          </div>
+          <div className="text-2xl font-bold">{meta.counts?.drivers ?? "-"}</div>
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/20 p-4 min-w-0">
           <div className="text-xs text-white/50">Cap / Day used</div>
-          <div className="text-2xl font-bold">
-            {meta.cap_per_day_used ?? "-"}
-          </div>
+          <div className="text-2xl font-bold">{meta.cap_per_day_used ?? "-"}</div>
         </div>
         <div className="rounded-2xl border border-white/10 bg-black/20 p-4 min-w-0">
           <div className="text-xs text-white/50">Issues</div>
@@ -901,9 +828,7 @@ function PublicHolidaysPicker({ value, onChange }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold">Public holidays</div>
-          <div className="text-xs text-white/50 mt-1">
-            Pick dates and add them
-          </div>
+          <div className="text-xs text-white/50 mt-1">Pick dates and add them</div>
         </div>
 
         <button
@@ -980,17 +905,15 @@ export default function SchedulerPage() {
   const [excluded, setExcluded] = useState(["friday"]);
   const [publicHolidays, setPublicHolidays] = useState([]);
 
-  const [employees, setEmployees] = useState([]); // [{name,civil_id,courier_id}]
+  const [employees, setEmployees] = useState([]); // [{name,civil_id}]
   const [types, setTypes] = useState({}); // { [name]: local|overseas }
 
   const [manualName, setManualName] = useState("");
   const [manualCivil, setManualCivil] = useState("");
-  const [manualCourier, setManualCourier] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [schedule, setSchedule] = useState(null);
 
-  // keep types aligned
   useEffect(() => {
     setTypes((prev) => {
       const next = { ...prev };
@@ -1004,7 +927,6 @@ export default function SchedulerPage() {
     });
   }, [employees]);
 
-  // prevent page-level horizontal scroll
   useEffect(() => {
     document.documentElement.classList.add("overflow-x-hidden");
     document.body.classList.add("overflow-x-hidden");
@@ -1033,22 +955,18 @@ export default function SchedulerPage() {
         map.set(e.name, {
           name: e.name,
           civil_id: existing?.civil_id || e.civil_id || "",
-          courier_id: existing?.courier_id || e.courier_id || "",
         });
       }
-      return Array.from(map.values()).sort((a, b) =>
-        a.name.localeCompare(b.name),
-      );
+      return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
     });
   }
 
-  // ✅ types from CSV origin column will auto-apply (but won't overwrite if user already set it)
   function applyImportedTypes(typesFromCsv) {
     if (!typesFromCsv) return;
     setTypes((prev) => {
       const next = { ...prev };
       for (const [name, t] of Object.entries(typesFromCsv)) {
-        if (!next[name]) next[name] = t; // only set if not already set
+        if (!next[name]) next[name] = t;
       }
       return next;
     });
@@ -1057,31 +975,23 @@ export default function SchedulerPage() {
   function addManualEmployee() {
     const name = manualName.trim();
     const civil_id = manualCivil.trim();
-    const courier_id = manualCourier.trim();
 
-    if (!name || !civil_id || !courier_id) {
-      return showToast(
-        "error",
-        "Please enter Name, Civil ID, and Courier ID before adding.",
-      );
+    if (!name || !civil_id) {
+      return showToast("error", "Please enter Name and Civil ID before adding.");
     }
 
     setEmployees((prev) => {
       const exists = prev.find((e) => e.name === name);
       if (exists) {
-        return prev.map((e) =>
-          e.name === name ? { ...e, civil_id, courier_id } : e,
-        );
+        return prev.map((e) => (e.name === name ? { ...e, civil_id } : e));
       }
-      return [...prev, { name, civil_id, courier_id }];
+      return [...prev, { name, civil_id }];
     });
 
-    // default type if missing
     setTypes((prev) => ({ ...prev, [name]: prev[name] || "local" }));
 
     setManualName("");
     setManualCivil("");
-    setManualCourier("");
   }
 
   async function generate() {
@@ -1093,14 +1003,11 @@ export default function SchedulerPage() {
         "No employees found. Upload a CSV or add employees manually.",
       );
 
-    const missing = employees.filter(
-      (e) =>
-        !String(e.civil_id || "").trim() || !String(e.courier_id || "").trim(),
-    );
+    const missing = employees.filter((e) => !String(e.civil_id || "").trim());
     if (missing.length) {
       return showToast(
         "error",
-        `Missing Civil ID / Courier ID for ${missing.length} employee(s). Please fill them in Employees table.`,
+        `Missing Civil ID for ${missing.length} employee(s). Please fill them in Employees table.`,
       );
     }
 
@@ -1112,7 +1019,6 @@ export default function SchedulerPage() {
         name: String(e.name || "").trim(),
         type: types[e.name] || "local",
         civil_id: String(e.civil_id || "").trim(),
-        courier_id: String(e.courier_id || "").trim(),
       })),
       public_holidays: publicHolidays,
       excluded_weekdays: excluded,
@@ -1170,7 +1076,6 @@ export default function SchedulerPage() {
       {/* Page */}
       <div className="max-w-7xl mx-auto px-4 py-6 md:py-8 min-w-0">
         <div className="grid gap-4 min-w-0">
-          {/* ✅ CSV IMPORT is now its own section */}
           {showEmployeesSection && (
             <CSVImportSection
               employeesCount={employees.length}
@@ -1179,7 +1084,7 @@ export default function SchedulerPage() {
             />
           )}
 
-          {/* ✅ RULES (FULL WIDTH) */}
+          {/* Rules */}
           <div className="min-w-0 rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-xl p-5 md:p-6">
             <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
               <div className="min-w-0">
@@ -1201,9 +1106,7 @@ export default function SchedulerPage() {
             {/* Rule inputs */}
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 min-w-0">
               <div className="min-w-0">
-                <label className="text-xs font-medium text-white/70">
-                  Year
-                </label>
+                <label className="text-xs font-medium text-white/70">Year</label>
                 <input
                   type="number"
                   value={year}
@@ -1213,9 +1116,7 @@ export default function SchedulerPage() {
               </div>
 
               <div className="min-w-0">
-                <label className="text-xs font-medium text-white/70">
-                  Month
-                </label>
+                <label className="text-xs font-medium text-white/70">Month</label>
                 <select
                   value={month}
                   onChange={(e) => setMonth(e.target.value)}
@@ -1273,8 +1174,7 @@ export default function SchedulerPage() {
 
               <div className="min-w-0">
                 <label className="text-xs font-medium text-white/70">
-                  Driver percentage cap{" "}
-                  <span className="text-white/40">(0..1)</span>
+                  Driver percentage cap <span className="text-white/40">(0..1)</span>
                 </label>
                 <input
                   type="number"
@@ -1301,8 +1201,7 @@ export default function SchedulerPage() {
                         type="button"
                         onClick={() =>
                           setExcluded((prev) => {
-                            if (checked)
-                              return prev.filter((x) => x !== d.value);
+                            if (checked) return prev.filter((x) => x !== d.value);
                             return Array.from(new Set([...prev, d.value]));
                           })
                         }
@@ -1324,15 +1223,11 @@ export default function SchedulerPage() {
               </div>
 
               <div className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4">
-                <PublicHolidaysPicker
-                  value={publicHolidays}
-                  onChange={setPublicHolidays}
-                />
+                <PublicHolidaysPicker value={publicHolidays} onChange={setPublicHolidays} />
               </div>
             </div>
           </div>
 
-          {/* ✅ Manual add is inside Employees section above table */}
           {showEmployeesSection && (
             <EmployeesSection
               employees={employees}
@@ -1343,13 +1238,10 @@ export default function SchedulerPage() {
               setManualName={setManualName}
               manualCivil={manualCivil}
               setManualCivil={setManualCivil}
-              manualCourier={manualCourier}
-              setManualCourier={setManualCourier}
               onAddManual={addManualEmployee}
             />
           )}
 
-          {/* Results */}
           {schedule && <ResultsView schedule={schedule} />}
         </div>
       </div>

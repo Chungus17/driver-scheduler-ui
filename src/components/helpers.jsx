@@ -538,12 +538,12 @@ export function downloadExcelFromSchedule(
   const greenFill = {
     type: "pattern",
     pattern: "solid",
-    fgColor: { argb: "0B3B2E" },
+    fgColor: { argb: "16fc05" },
   };
   const redFill = {
     type: "pattern",
     pattern: "solid",
-    fgColor: { argb: "3B0B14" },
+    fgColor: { argb: "fa4343" },
   };
   const center = { vertical: "middle", horizontal: "center", wrapText: true };
 
@@ -575,7 +575,7 @@ export function downloadExcelFromSchedule(
         const cell = ws.getRow(r).getCell(c);
         cell.alignment = center;
         cell.fill = cell.value === "OFF" ? redFill : greenFill;
-        cell.font = { color: { argb: "FFFFFF" } };
+        cell.font = { color: { argb: "000000" } };
       }
 
       // Name cell should be visible (don't force white on white)

@@ -47,19 +47,21 @@ export function normalizeType(v) {
 }
 
 export function guessNameColumn(headers) {
-  const lower = (headers || []).map((h) =>
-    String(h || "")
-      .trim()
-      .toLowerCase(),
-  );
-  const idx1 = lower.findIndex(
-    (h) => h.includes("driver") && h.includes("name"),
-  );
-  if (idx1 !== -1) return headers[idx1];
-  const idx2 = lower.findIndex(
-    (h) => h === "driver" || h === "drivers" || h === "name" || h === "names",
-  );
-  return idx2 >= 0 ? headers[idx2] : headers?.[0] || "";
+  // const lower = (headers || []).map((h) =>
+  //   String(h || "")
+  //     .trim()
+  //     .toLowerCase(),
+  // );
+  // const idx1 = lower.findIndex(
+  //   (h) => h.includes("driver") && h.includes("name"),
+  // );
+  // if (idx1 !== -1) return headers[idx1];
+  // const idx2 = lower.findIndex(
+  //   (h) => h === "driver" || h === "drivers" || h === "name" || h === "names",
+  // );
+  // return idx2 >= 0 ? headers[idx2] : headers?.[0] || "";
+  console.log(headers);
+  return "Courier First Name";
 }
 
 export function guessByAliases(headers, aliases) {

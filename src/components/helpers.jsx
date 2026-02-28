@@ -111,6 +111,7 @@ export function CSVImportSection({
           "civil_id",
           "civil id",
           "civilid",
+          "Courier ID",
           "cid",
         ]);
 

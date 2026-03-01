@@ -34,16 +34,25 @@ export function normalizeKey(s) {
     .replace(/[\s_-]+/g, "");
 }
 
-export function normalizeType(v) {
-  const s = String(v || "")
-    .trim()
-    .toLowerCase();
-  if (!s) return "";
-  if (s.includes("over")) return "overseas";
-  if (s.includes("local")) return "local";
-  if (s === "o") return "overseas";
-  if (s === "l") return "local";
-  return "";
+export function normalizeType(raw) {
+  const s = (raw ?? "").toString().trim().toLowerCase();
+  if (!s || s === "nan") return "local";
+
+  const letters = s.replace(/[^a-z]/g, ""); // keep only letters
+
+  // ✅ overseas detection
+  if (
+    letters.includes("overseas") ||
+    letters.includes("oversea") ||
+    letters.includes("over")
+  )
+    return "overseas";
+
+  // ✅ local detection
+  if (letters.includes("local") || letters === "l") return "local";
+
+  // fallback
+  return "local";
 }
 
 export function guessNameColumn(headers) {

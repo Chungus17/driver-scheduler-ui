@@ -52,7 +52,7 @@ export default function SchedulerPage() {
   const [publicHolidays, setPublicHolidays] = useState([]);
 
   const [employees, setEmployees] = useState([]); // [{name,civil_id}]
-  const [types, setTypes] = useState({}); // { [civil_id]: local|overseas }
+  const [types, setTypes] = useState({}); // { [id]: local|overseas }
   const [manualName, setManualName] = useState("");
   const [manualCivil, setManualCivil] = useState("");
 
@@ -63,19 +63,17 @@ export default function SchedulerPage() {
     setTypes((prev) => {
       const next = { ...prev };
 
-      // ensure every employee civil_id has a type
+      // ensure every employee id has a type
       employees.forEach((e) => {
-        const key = String(e.civil_id || "").trim();
+        const key = String(e.id || "").trim();
         if (!key) return;
         if (!next[key]) next[key] = "local";
       });
 
       // remove types that no longer exist
-      Object.keys(next).forEach((civilId) => {
-        if (
-          !employees.some((e) => String(e.civil_id || "").trim() === civilId)
-        ) {
-          delete next[civilId];
+      Object.keys(next).forEach((id) => {
+        if (!employees.some((e) => String(e.id || "").trim() === id)) {
+          delete next[id];
         }
       });
 
@@ -107,28 +105,18 @@ export default function SchedulerPage() {
       const next = [...prev];
 
       for (const e of imported || []) {
+        const id = String(e?.id || "").trim();
         const name = String(e?.name || "").trim();
         const civil = String(e?.civil_id || "").trim();
-        if (!name) continue;
 
-        // If civil exists, dedupe by civil_id
-        if (civil) {
-          const idx = next.findIndex(
-            (x) => String(x.civil_id || "").trim() === civil,
-          );
-          if (idx >= 0) {
-            // update name if needed
-            next[idx] = {
-              ...next[idx],
-              name: next[idx].name || name,
-              civil_id: civil,
-            };
-          } else {
-            next.push({ name, civil_id: civil });
-          }
+        if (!id || !name) continue;
+
+        const idx = next.findIndex((x) => String(x.id || "").trim() === id);
+
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], name, civil_id: civil };
         } else {
-          // No civil_id => keep as a separate row
-          next.push({ name, civil_id: "" });
+          next.push({ id, name, civil_id: civil });
         }
       }
 
@@ -142,28 +130,15 @@ export default function SchedulerPage() {
     setTypes((prev) => {
       const next = { ...prev };
 
-      for (const [keyRaw, tRaw] of Object.entries(typesFromCsv)) {
-        const key = String(keyRaw || "").trim();
-        const t = tRaw === "overseas" ? "overseas" : "local";
-        if (!key) continue;
+      for (const [idRaw, tRaw] of Object.entries(typesFromCsv)) {
+        const id = String(idRaw || "").trim();
+        if (!id) continue;
 
-        // If key matches a civil_id, use it directly
-        const hasCivil = employees.some(
-          (e) => String(e.civil_id || "").trim() === key,
-        );
-
-        if (hasCivil) {
-          if (!next[key]) next[key] = t;
-          continue;
-        }
-
-        // Otherwise treat it as a NAME and apply to ALL employees with that name
-        employees
-          .filter((e) => String(e.name || "").trim() === key)
-          .forEach((e) => {
-            const civilId = String(e.civil_id || "").trim();
-            if (civilId && !next[civilId]) next[civilId] = t;
-          });
+        const v = String(tRaw || "")
+          .trim()
+          .toLowerCase();
+        // accept LOCAL / OVERSEAS / anything containing "over"
+        next[id] = v.includes("over") ? "overseas" : "local";
       }
 
       return next;
@@ -181,23 +156,19 @@ export default function SchedulerPage() {
       );
     }
 
-    setEmployees((prev) => {
-      const exists = prev.find(
-        (e) => String(e.civil_id || "").trim() === civil_id,
-      );
+    const id = civil_id; // best unique id
 
-      // if same civil ID exists, update the name (or keep existing if you prefer)
+    setEmployees((prev) => {
+      const exists = prev.find((e) => String(e.id || "").trim() === id);
       if (exists) {
         return prev.map((e) =>
-          String(e.civil_id || "").trim() === civil_id ? { ...e, name } : e,
+          String(e.id || "").trim() === id ? { ...e, name, civil_id } : e,
         );
       }
-
-      // otherwise add a new row (name can repeat)
-      return [...prev, { name, civil_id }];
+      return [...prev, { id, name, civil_id }];
     });
 
-    setTypes((prev) => ({ ...prev, [civil_id]: prev[civil_id] || "local" }));
+    setTypes((prev) => ({ ...prev, [id]: prev[id] || "local" }));
 
     setManualName("");
     setManualCivil("");
@@ -226,11 +197,9 @@ export default function SchedulerPage() {
       start_day: Number(startDay),
       employees: employees.map((e, idx) => ({
         id:
-          String(e.civil_id || "").trim() ||
-          `${String(e.name || "").trim()}__${idx}`,
-
+          String(e.id || "").trim() || `${String(e.name || "").trim()}__${idx}`,
         name: String(e.name || "").trim(),
-        type: types[String(e.civil_id || "").trim()] || "local",
+        type: types[String(e.id || "").trim()] || "local",
         civil_id: String(e.civil_id || "").trim(),
       })),
       public_holidays: publicHolidays,

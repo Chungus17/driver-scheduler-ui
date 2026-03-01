@@ -1,5 +1,11 @@
 /* eslint-disable react-hooks/static-components */
-import { classNames, guessByAliases, guessNameColumn, normalizeKey, normalizeType } from "./helpers";
+import {
+  classNames,
+  guessByAliases,
+  guessNameColumn,
+  normalizeKey,
+  normalizeType,
+} from "./helpers";
 import Papa from "papaparse";
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
@@ -116,11 +122,9 @@ export function CSVImportSection({
         ]);
 
         const guessedOrigin = guessByAliases(cols, [
-          "origin",
+          "Type",
           "type",
-          "employee_type",
-          "driver_type",
-          "local/overseas",
+          "origin",
         ]);
 
         setNameCol(guessedName);
@@ -140,8 +144,8 @@ export function CSVImportSection({
   function emitImport() {
     if (!rows.length || !nameCol) return;
 
-    const map = new Map();
-    const typesFromCsv = {};
+    const employeesOut = [];
+    const typesFromCsv = {}; // { [civil_id]: "local"|"overseas" }
 
     for (const r of rows) {
       const name = (r?.[nameCol] ?? "").toString().trim();
@@ -152,16 +156,14 @@ export function CSVImportSection({
       const originRaw = originCol ? r?.[originCol] : "";
       const t = normalizeType(originRaw);
 
-      const prev = map.get(name);
-      map.set(name, {
-        name,
-        civil_id: prev?.civil_id || civil_id || "",
-      });
+      // ✅ KEEP EVERY ROW (no Map by name)
+      employeesOut.push({ name, civil_id });
 
-      if (t) typesFromCsv[name] = t;
+      // ✅ Only store type if we have a unique key (civil_id)
+      if (civil_id && t) typesFromCsv[civil_id] = t;
     }
 
-    onImportedEmployees(Array.from(map.values()));
+    onImportedEmployees(employeesOut);
     onImportedTypes(typesFromCsv);
   }
 
@@ -281,17 +283,26 @@ export function EmployeesSection({
 }) {
   const [q, setQ] = useState("");
 
-  // ✅ NEW: type filter ("all" | "local" | "overseas")
+  // type filter ("all" | "local" | "overseas")
   const [typeFilter, setTypeFilter] = useState("all");
+
+  // helper: stable key even if civil_id is empty (should be rare, but safe)
+  const rowKey = (emp, idx) => {
+    const civil = String(emp?.civil_id || "").trim();
+    return civil || `row_${idx}_${String(emp?.name || "").trim()}`;
+  };
 
   const counts = useMemo(() => {
     let local = 0;
     let overseas = 0;
+
     for (const e of employees) {
-      const t = types[e.name] || "local";
-      if (t === "overseas") overseas++;
+      const civil = String(e.civil_id || "").trim();
+      const t = (civil && types[civil]) || "LOCAL";
+      if (t === "OVERSEAS") overseas++;
       else local++;
     }
+
     return { all: employees.length, local, overseas };
   }, [employees, types]);
 
@@ -299,7 +310,9 @@ export function EmployeesSection({
     const s = q.trim().toLowerCase();
 
     return employees.filter((e) => {
-      const t = types[e.name] || "local";
+      const civil = String(e.civil_id || "").trim();
+      const t = (civil && types[civil]) || "local";
+
       if (typeFilter !== "all" && t !== typeFilter) return false;
 
       if (!s) return true;
@@ -309,23 +322,37 @@ export function EmployeesSection({
   }, [employees, q, types, typeFilter]);
 
   function setAll(t) {
-    const next = { ...types };
-    employees.forEach((e) => (next[e.name] = t));
-    setTypes(next);
+    setTypes((prev) => {
+      const next = { ...prev };
+      employees.forEach((e) => {
+        const civil = String(e.civil_id || "").trim();
+        if (!civil) return;
+        next[civil] = t;
+      });
+      return next;
+    });
   }
 
-  function patchEmployee(name, patch) {
+  function patchEmployee(civil_id, patch) {
+    const key = String(civil_id || "").trim();
     setEmployees((prev) =>
-      prev.map((e) => (e.name === name ? { ...e, ...patch } : e)),
+      prev.map((e) =>
+        String(e.civil_id || "").trim() === key ? { ...e, ...patch } : e,
+      ),
     );
   }
 
-  // ✅ NEW: delete a row
-  function deleteEmployee(name) {
-    setEmployees((prev) => prev.filter((e) => e.name !== name));
+  // delete by civil_id
+  function deleteEmployee(civil_id) {
+    const key = String(civil_id || "").trim();
+
+    setEmployees((prev) =>
+      prev.filter((e) => String(e.civil_id || "").trim() !== key),
+    );
+
     setTypes((prev) => {
       const next = { ...prev };
-      delete next[name];
+      delete next[key];
       return next;
     });
   }
@@ -385,7 +412,7 @@ export function EmployeesSection({
         </div>
       </div>
 
-      {/* ✅ Manual add */}
+      {/* Manual add */}
       <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-3 min-w-0">
         <div className="lg:col-span-6 min-w-0">
           <input
@@ -413,7 +440,7 @@ export function EmployeesSection({
         </div>
       </div>
 
-      {/* ✅ Search + Type filters */}
+      {/* Search + Type filters */}
       <div className="mt-4 flex flex-col lg:flex-row lg:items-center gap-3 min-w-0">
         <div className="flex gap-2 min-w-0 w-full">
           <input
@@ -435,7 +462,7 @@ export function EmployeesSection({
         </div>
       </div>
 
-      {/* ✅ Table */}
+      {/* Table */}
       <div className="mt-4 max-h-[420px] overflow-auto rounded-2xl border border-white/10 min-w-0">
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-black/40 backdrop-blur border-b border-white/10">
@@ -452,55 +479,86 @@ export function EmployeesSection({
           </thead>
 
           <tbody>
-            {filtered.map((emp) => (
-              <tr
-                key={emp.name}
-                className="border-b border-white/10 last:border-b-0"
-              >
-                <td className="p-3 font-medium text-white/90 break-words">
-                  {emp.name}
-                </td>
+            {filtered.map((emp, idx) => {
+              const civil = String(emp.civil_id || "").trim();
+              const typeVal = (civil && types[civil]) || "local";
 
-                <td className="p-3">
-                  <input
-                    value={emp.civil_id || ""}
-                    onChange={(e) =>
-                      patchEmployee(emp.name, { civil_id: e.target.value })
-                    }
-                    placeholder="Civil ID..."
-                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  />
-                </td>
+              return (
+                <tr
+                  key={rowKey(emp, idx)}
+                  className="border-b border-white/10 last:border-b-0"
+                >
+                  <td className="p-3 font-medium text-white/90 break-words">
+                    {emp.name}
+                  </td>
 
-                <td className="p-3">
-                  <select
-                    value={types[emp.name] || "local"}
-                    onChange={(e) =>
-                      setTypes((prev) => ({
-                        ...prev,
-                        [emp.name]: e.target.value,
-                      }))
-                    }
-                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
-                  >
-                    <option value="local">local</option>
-                    <option value="overseas">overseas</option>
-                  </select>
-                </td>
+                  <td className="p-3">
+                    <input
+                      value={emp.civil_id || ""}
+                      onChange={(e) => {
+                        // IMPORTANT: changing civil_id changes the key used in `types`
+                        // Best practice: if you allow editing civil_id, move the type over too.
+                        const nextCivil = String(e.target.value || "").trim();
 
-                {/* ✅ Delete button */}
-                <td className="p-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => deleteEmployee(emp.name)}
-                    className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 hover:bg-red-500/15"
-                    title="Delete"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
+                        // move type mapping from old civil -> new civil
+                        setTypes((prev) => {
+                          const next = { ...prev };
+                          if (civil && nextCivil && civil !== nextCivil) {
+                            next[nextCivil] =
+                              next[civil] || next[nextCivil] || "local";
+                            delete next[civil];
+                          }
+                          return next;
+                        });
+
+                        patchEmployee(emp.civil_id, {
+                          civil_id: e.target.value,
+                        });
+                      }}
+                      placeholder="Civil ID..."
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    />
+                  </td>
+
+                  <td className="p-3">
+                    <select
+                      value={typeVal}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (!civil) return; // can't store type without a key
+                        setTypes((prev) => ({ ...prev, [civil]: v }));
+                      }}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-[#d3fb00]/20 focus:border-[#d3fb00]/30"
+                    >
+                      <option value="local">local</option>
+                      <option value="overseas">overseas</option>
+                    </select>
+                    {!civil && (
+                      <div className="text-[11px] text-white/50 mt-1">
+                        Enter Civil ID to set type.
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="p-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => civil && deleteEmployee(civil)}
+                      disabled={!civil}
+                      className={classNames(
+                        "rounded-xl border px-3 py-2 text-xs font-semibold transition",
+                        civil
+                          ? "border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                          : "border-white/10 bg-white/5 text-white/30 cursor-not-allowed",
+                      )}
+                      title={civil ? "Delete" : "Civil ID required to delete"}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
 
             {!employees.length && (
               <tr>

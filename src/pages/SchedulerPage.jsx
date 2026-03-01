@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Papa from "papaparse";
 import ExcelJS from "exceljs";
-import logo from "../assets/VerdiLogo.svg"; 
-import { classNames, MONTHS, WEEKDAYS,  } from "../components/helpers.js";
+import logo from "../assets/VerdiLogo.svg";
+import { classNames, MONTHS, WEEKDAYS } from "../components/helpers.js";
 import { Toast } from "../components/helpers.jsx";
 import { CSVImportSection } from "../components/helpers.jsx";
 import { PublicHolidaysPicker } from "../components/helpers.jsx";
@@ -52,8 +52,7 @@ export default function SchedulerPage() {
   const [publicHolidays, setPublicHolidays] = useState([]);
 
   const [employees, setEmployees] = useState([]); // [{name,civil_id}]
-  const [types, setTypes] = useState({}); // { [name]: local|overseas }
-
+  const [types, setTypes] = useState({}); // { [civil_id]: local|overseas }
   const [manualName, setManualName] = useState("");
   const [manualCivil, setManualCivil] = useState("");
 
@@ -63,12 +62,23 @@ export default function SchedulerPage() {
   useEffect(() => {
     setTypes((prev) => {
       const next = { ...prev };
+
+      // ensure every employee civil_id has a type
       employees.forEach((e) => {
-        if (!next[e.name]) next[e.name] = "local";
+        const key = String(e.civil_id || "").trim();
+        if (!key) return;
+        if (!next[key]) next[key] = "local";
       });
-      Object.keys(next).forEach((k) => {
-        if (!employees.some((e) => e.name === k)) delete next[k];
+
+      // remove types that no longer exist
+      Object.keys(next).forEach((civilId) => {
+        if (
+          !employees.some((e) => String(e.civil_id || "").trim() === civilId)
+        ) {
+          delete next[civilId];
+        }
       });
+
       return next;
     });
   }, [employees]);
@@ -94,28 +104,68 @@ export default function SchedulerPage() {
 
   function mergeImportedEmployees(imported) {
     setEmployees((prev) => {
-      const map = new Map(prev.map((e) => [e.name, { ...e }]));
+      const next = [...prev];
+
       for (const e of imported || []) {
-        if (!e?.name) continue;
-        const existing = map.get(e.name);
-        map.set(e.name, {
-          name: e.name,
-          civil_id: existing?.civil_id || e.civil_id || "",
-        });
+        const name = String(e?.name || "").trim();
+        const civil = String(e?.civil_id || "").trim();
+        if (!name) continue;
+
+        // If civil exists, dedupe by civil_id
+        if (civil) {
+          const idx = next.findIndex(
+            (x) => String(x.civil_id || "").trim() === civil,
+          );
+          if (idx >= 0) {
+            // update name if needed
+            next[idx] = {
+              ...next[idx],
+              name: next[idx].name || name,
+              civil_id: civil,
+            };
+          } else {
+            next.push({ name, civil_id: civil });
+          }
+        } else {
+          // No civil_id => keep as a separate row
+          next.push({ name, civil_id: "" });
+        }
       }
-      return Array.from(map.values()).sort((a, b) =>
-        a.name.localeCompare(b.name),
-      );
+
+      return next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
     });
   }
 
   function applyImportedTypes(typesFromCsv) {
     if (!typesFromCsv) return;
+
     setTypes((prev) => {
       const next = { ...prev };
-      for (const [name, t] of Object.entries(typesFromCsv)) {
-        if (!next[name]) next[name] = t;
+
+      for (const [keyRaw, tRaw] of Object.entries(typesFromCsv)) {
+        const key = String(keyRaw || "").trim();
+        const t = tRaw === "overseas" ? "overseas" : "local";
+        if (!key) continue;
+
+        // If key matches a civil_id, use it directly
+        const hasCivil = employees.some(
+          (e) => String(e.civil_id || "").trim() === key,
+        );
+
+        if (hasCivil) {
+          if (!next[key]) next[key] = t;
+          continue;
+        }
+
+        // Otherwise treat it as a NAME and apply to ALL employees with that name
+        employees
+          .filter((e) => String(e.name || "").trim() === key)
+          .forEach((e) => {
+            const civilId = String(e.civil_id || "").trim();
+            if (civilId && !next[civilId]) next[civilId] = t;
+          });
       }
+
       return next;
     });
   }
@@ -132,14 +182,22 @@ export default function SchedulerPage() {
     }
 
     setEmployees((prev) => {
-      const exists = prev.find((e) => e.name === name);
+      const exists = prev.find(
+        (e) => String(e.civil_id || "").trim() === civil_id,
+      );
+
+      // if same civil ID exists, update the name (or keep existing if you prefer)
       if (exists) {
-        return prev.map((e) => (e.name === name ? { ...e, civil_id } : e));
+        return prev.map((e) =>
+          String(e.civil_id || "").trim() === civil_id ? { ...e, name } : e,
+        );
       }
+
+      // otherwise add a new row (name can repeat)
       return [...prev, { name, civil_id }];
     });
 
-    setTypes((prev) => ({ ...prev, [name]: prev[name] || "local" }));
+    setTypes((prev) => ({ ...prev, [civil_id]: prev[civil_id] || "local" }));
 
     setManualName("");
     setManualCivil("");
@@ -166,9 +224,13 @@ export default function SchedulerPage() {
       year: Number(year),
       month,
       start_day: Number(startDay),
-      employees: employees.map((e) => ({
+      employees: employees.map((e, idx) => ({
+        id:
+          String(e.civil_id || "").trim() ||
+          `${String(e.name || "").trim()}__${idx}`,
+
         name: String(e.name || "").trim(),
-        type: types[e.name] || "local",
+        type: types[String(e.civil_id || "").trim()] || "local",
         civil_id: String(e.civil_id || "").trim(),
       })),
       public_holidays: publicHolidays,

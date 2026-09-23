@@ -344,7 +344,7 @@ export default function Login({ onLogin }) {
             </div>
 
             <div>
-              <h1 className="text-xl font-bold text-slate-900">FleetOps</h1>
+              <h1 className="text-xl font-bold text-slate-900">Verdi</h1>
 
               <p className="text-xs text-slate-500">Driver Scheduler</p>
             </div>

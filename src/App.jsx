@@ -1,34 +1,12 @@
-import React from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
-import LoginPage from "./pages/LoginPage.jsx";
-import SchedulerPage from "./pages/SchedulerPage.jsx";
+import { useState } from 'react';
+import Login from './pages/Login';
+import Home from './pages/Home';
 
-function getToken() {
-  return localStorage.getItem("jwt") || "";
-}
-
-function RequireAuth({ children }) {
-  const token = getToken();
-  if (!token) return <Navigate to="/login" replace />;
-  return children;
-}
+const LOGIN_FLAG = 'driver-scheduler-logged-in';
 
 export default function App() {
-  const token = getToken();
-
-  return (
-    <Routes>
-      <Route path="/" element={<Navigate to={token ? "/app" : "/login"} replace />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route
-        path="/app"
-        element={
-          <RequireAuth>
-            <SchedulerPage />
-          </RequireAuth>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  );
+  const [loggedIn, setLoggedIn] = useState(() => sessionStorage.getItem(LOGIN_FLAG) === 'true');
+  function handleLogin() { sessionStorage.setItem(LOGIN_FLAG, 'true'); setLoggedIn(true); }
+  function handleLogout() { sessionStorage.removeItem(LOGIN_FLAG); setLoggedIn(false); }
+  return loggedIn ? <Home onLogout={handleLogout} /> : <Login onLogin={handleLogin} />;
 }

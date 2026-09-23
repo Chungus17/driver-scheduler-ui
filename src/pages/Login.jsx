@@ -170,10 +170,10 @@ export default function Login({ onLogin }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xl font-bold tracking-tight">FleetOps</span>
+            <span className="text-xl font-bold tracking-tight">Verdi</span>
 
             <span className="text-lg font-light text-slate-400">
-              / Scheduler
+              / Driver Scheduler
             </span>
           </div>
         </div>
